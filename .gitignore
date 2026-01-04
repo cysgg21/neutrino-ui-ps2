@@ -1,14 +1,5 @@
-# PS2 builds
-*.elf
+nhui.elf
+assets_build/
 *.o
 *.a
-*.map
-
-# Generated assets (no los versionamos)
-assets_build/*.raw
-
-# OS / editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+*.elf
