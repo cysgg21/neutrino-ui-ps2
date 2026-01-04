@@ -1,0 +1,66 @@
+name: build-ps2-elf
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Usamos el contenedor oficial ya listo
+    container:
+      image: ps2dev/ps2dev:v1.2.0
+
+    # IMPORTANTE: ese contenedor es Alpine y muchas veces NO trae bash
+    defaults:
+      run:
+        shell: sh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install basic deps (Alpine)
+        run: |
+          apk add --no-cache git make cmake python3 py3-pillow
+
+      - name: Export PS2 env
+        run: |
+          echo "PS2DEV=/usr/local/ps2dev" >> $GITHUB_ENV
+          echo "PS2SDK=/usr/local/ps2dev/ps2sdk" >> $GITHUB_ENV
+          echo "/usr/local/ps2dev/bin" >> $GITHUB_PATH
+
+      - name: Build + install dmaKit
+        run: |
+          git clone --depth 1 https://github.com/ps2dev/dmaKit.git /tmp/dmaKit
+          cd /tmp/dmaKit
+          make -j2
+          make install
+
+      - name: Build + install gsKit
+        run: |
+          git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
+          cd /tmp/gsKit
+          cmake -S . -B build -Wno-dev \
+            -DCMAKE_TOOLCHAIN_FILE="$PS2SDK/ps2dev.cmake" \
+            -DCMAKE_INSTALL_PREFIX="$PS2SDK/ports" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j2
+          cmake --install build
+
+      - name: Build assets (png -> raw)
+        run: |
+          python3 tools/build_assets.py
+
+      - name: Build ELF
+        run: |
+          make clean
+          make -j2
+
+      - name: Upload nhui.elf
+        uses: actions/upload-artifact@v4
+        with:
+          name: nhui-elf
+          path: nhui.elf
