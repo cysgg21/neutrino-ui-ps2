@@ -1,7 +1,7 @@
 EE_BIN  = nhui.elf
 EE_OBJS = src/main.o assets_build/bg.o assets_build/disc.o
 
-EE_LIBS += -lgsKit -ldmaKit -lgskit_toolkit -lpad -lc
+EE_LIBS += -lgskit_toolkit -lgsKit -ldmaKit -lpad -lc
 
 all: $(EE_BIN)
 
