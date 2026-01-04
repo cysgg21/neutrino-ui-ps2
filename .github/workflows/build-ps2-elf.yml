@@ -12,49 +12,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build nhui.elf in ps2dev container
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build in ps2dev docker (includes gsKit)
         run: |
           set -e
           docker pull ps2dev/ps2dev:v1.2.0
 
           docker run --rm \
-            -e GH_TOKEN="$GH_TOKEN" \
-            -v "${GITHUB_WORKSPACE}:/work" \
-            -w /work \
+            -v "$PWD":/src \
+            -w /src \
             ps2dev/ps2dev:v1.2.0 \
-            /bin/sh -lc '
+            sh -lc '
               set -e
+              apk add --no-cache make git python3 py3-pillow cmake
 
-              # Alpine deps
-              apk add --no-cache make git python3 py3-pillow build-base cmake
+              export PS2DEV=/usr/local/ps2dev
+              export PS2SDK=$PS2DEV/ps2sdk
+              export PATH="$PS2DEV/bin:$PATH"
 
-              # PS2SDK env (por si no viene seteado)
-              export PS2DEV=${PS2DEV:-/usr/local/ps2dev}
-              export PS2SDK=${PS2SDK:-$PS2DEV/ps2sdk}
+              # install gsKit
+              git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
+              cd /tmp/gsKit
+              make -j2
+              make install
 
-              echo "PS2DEV=$PS2DEV"
-              echo "PS2SDK=$PS2SDK"
-
-              # Evita el error "could not read Username..." usando token
-              git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-
-              # Instala PORTS si faltan headers
-              if [ ! -f "$PS2SDK/ports/include/gsKit.h" ] || [ ! -f "$PS2SDK/ports/include/dmaKit.h" ]; then
-                rm -rf /tmp/dmaKit /tmp/gsKit
-
-                git clone --depth 1 https://github.com/ps2dev/dmaKit.git /tmp/dmaKit
-                make -C /tmp/dmaKit -j2 install
-
-                git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
-                make -C /tmp/gsKit -j2 install
-              fi
-
-              # Genera assets_build/*.raw
+              cd /src
               python3 tools/build_assets.py
-
-              # Build ELF
               make clean
               make
             '
