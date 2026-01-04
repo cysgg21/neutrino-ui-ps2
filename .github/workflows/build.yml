@@ -6,51 +6,54 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+
+    # Todo el job corre dentro del contenedor que ya trae PS2SDK + toolchain
+    container:
+      image: ps2dev/ps2dev:v1.2.0
+
+    env:
+      PS2DEV: /usr/local/ps2dev
+      PS2SDK: /usr/local/ps2dev/ps2sdk
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Install deps (Alpine inside container)
+        shell: sh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git build-essential cmake make \
-            python3 python3-pip \
-            wget curl patch \
-            texinfo flex bison gawk \
-            libgmp-dev libmpfr-dev libmpc-dev \
-            libncurses-dev zlib1g-dev
-          python3 -m pip install pillow
+          apk add --no-cache \
+            git \
+            build-base \
+            make \
+            cmake \
+            python3 \
+            py3-pip \
+            py3-pillow
 
-      - name: Install PS2DEV toolchain + PS2SDK
+          python3 -c "from PIL import Image; print('Pillow OK')"
+
+      # gsKit/dmaKit NO viene siempre en la imagen; tu código lo necesita (gsKit.h / dmaKit.h)
+      - name: Install gsKit (dmaKit)
+        shell: sh
         run: |
-          export PS2DEV=$HOME/ps2dev
-          echo "PS2DEV=$PS2DEV" >> $GITHUB_ENV
-          echo "$PS2DEV/bin" >> $GITHUB_PATH
-
-          git clone --depth 1 https://github.com/ps2dev/ps2toolchain.git
-          cd ps2toolchain
-          ./toolchain.sh
-          cd ..
-
-          git clone --depth 1 https://github.com/ps2dev/ps2sdk.git
-          export PS2SDK=$PS2DEV/ps2sdk
-          echo "PS2SDK=$PS2SDK" >> $GITHUB_ENV
-          cd ps2sdk
+          git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
+          cd /tmp/gsKit
           make -j2
           make install
-          cd ..
 
       - name: Build assets (png -> raw)
+        shell: sh
         run: |
+          mkdir -p assets_build
           python3 tools/build_assets.py
 
       - name: Build ELF
+        shell: sh
         run: |
           make clean
-          make
+          make -j2
 
       - name: Upload nhui.elf
         uses: actions/upload-artifact@v4
