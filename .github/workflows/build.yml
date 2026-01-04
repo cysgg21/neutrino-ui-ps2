@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build in container (install deps + build PS2SDK + assets + ELF)
+      - name: Build in container (ports + assets + ELF)
         run: |
           docker pull ps2dev/ps2dev:v1.2.0
           docker run --rm \
@@ -23,43 +23,52 @@ jobs:
             /bin/sh -c '
               set -e
 
-              # --- Base deps (Alpine) ---
-              # Necesitamos: make, git, python + pip para Pillow, y build tools para ps2sdk/gsKit
+              # --- Paquetes necesarios (sin pip) ---
               apk add --no-cache \
                 make git \
-                python3 py3-pip \
-                build-base cmake \
-                zlib-dev
+                python3 py3-pillow \
+                build-base cmake zlib-dev
 
-              pip3 install --no-cache-dir pillow
-
-              # --- Ensure PS2SDK present + build it ---
-              # La imagen tiene /usr/local/ps2dev normalmente. Si no, lo creamos.
+              # --- Variables PS2DEV / PS2SDK (ya existen en la imagen) ---
               export PS2DEV=/usr/local/ps2dev
               export PS2SDK=$PS2DEV/ps2sdk
 
-              mkdir -p "$PS2DEV"
-              if [ ! -d "$PS2SDK/.git" ]; then
-                git clone --depth 1 https://github.com/ps2dev/ps2sdk.git "$PS2SDK"
+              # --- Instalar PORTS (gsKit/dmaKit vienen de aquí) ---
+              if [ -d "$PS2SDK/ports" ]; then
+                cd "$PS2SDK/ports"
+                make -j2
+                make install
+              else
+                echo "No existe $PS2SDK/ports (PS2SDK incompleto en la imagen)"
+                exit 1
               fi
 
-              cd "$PS2SDK"
-              make -j2
-              make install
-
-              # --- Build gsKit + dmaKit (headers que te faltan) ---
-              # Están en ps2sdk/ports
-              cd "$PS2SDK/ports"
-              make -j2
-              make install
-
-              # --- Back to project ---
+              # --- Volver al proyecto y generar assets RAW ---
               cd /src
+              mkdir -p assets_build
 
-              # --- Generate RAW assets from PNGs (SIEMPRE) ---
-              python3 tools/build_assets.py
+              # Si tienes tools/build_assets.py úsalo; si no, usa png2rgba5551.py
+              if [ -f tools/build_assets.py ]; then
+                python3 tools/build_assets.py
+              elif [ -f tools/png2rgba5551.py ]; then
+                BG_PNG=$(ls assets_src/*bg*.png 2>/dev/null | head -n1)
+                DISC_PNG=$(ls assets_src/*disc*.png assets_src/*icon*.png 2>/dev/null | head -n1)
 
-              # --- Build ELF ---
+                # Fallback si los nombres no coinciden
+                [ -n "$BG_PNG" ] || BG_PNG=$(ls assets_src/*.png 2>/dev/null | head -n1)
+                [ -n "$DISC_PNG" ] || DISC_PNG=$(ls assets_src/*.png 2>/dev/null | tail -n1)
+
+                echo "BG_PNG=$BG_PNG"
+                echo "DISC_PNG=$DISC_PNG"
+
+                python3 tools/png2rgba5551.py "$BG_PNG" assets_build/bg.raw
+                python3 tools/png2rgba5551.py "$DISC_PNG" assets_build/disc.raw
+              else
+                echo "No encuentro tools/build_assets.py ni tools/png2rgba5551.py"
+                exit 1
+              fi
+
+              # --- Compilar tu ELF ---
               make clean
               make -j2
             '
@@ -68,4 +77,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nhui-elf
-          path: nhui.elf
+          path: |
+            nhui.elf
+            *.elf
+            *.ELF
