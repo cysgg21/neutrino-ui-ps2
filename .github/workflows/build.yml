@@ -1,8 +1,7 @@
-name: Build PS2 ELF
+name: build-ps2-elf
 
 on:
   push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -13,71 +12,48 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build in container (ports + assets + ELF)
+      - name: Install deps
         run: |
-          docker pull ps2dev/ps2dev:v1.2.0
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/src" \
-            -w /src \
-            ps2dev/ps2dev:v1.2.0 \
-            /bin/sh -c '
-              set -e
+          sudo apt-get update
+          sudo apt-get install -y \
+            git build-essential cmake make \
+            python3 python3-pip \
+            wget curl patch \
+            texinfo flex bison gawk \
+            libgmp-dev libmpfr-dev libmpc-dev \
+            libncurses-dev zlib1g-dev
+          python3 -m pip install pillow
 
-              # --- Paquetes necesarios (sin pip) ---
-              apk add --no-cache \
-                make git \
-                python3 py3-pillow \
-                build-base cmake zlib-dev
+      - name: Install PS2DEV toolchain + PS2SDK
+        run: |
+          export PS2DEV=$HOME/ps2dev
+          echo "PS2DEV=$PS2DEV" >> $GITHUB_ENV
+          echo "$PS2DEV/bin" >> $GITHUB_PATH
 
-              # --- Variables PS2DEV / PS2SDK (ya existen en la imagen) ---
-              export PS2DEV=/usr/local/ps2dev
-              export PS2SDK=$PS2DEV/ps2sdk
+          git clone --depth 1 https://github.com/ps2dev/ps2toolchain.git
+          cd ps2toolchain
+          ./toolchain.sh
+          cd ..
 
-              # --- Instalar PORTS (gsKit/dmaKit vienen de aquí) ---
-              if [ -d "$PS2SDK/ports" ]; then
-                cd "$PS2SDK/ports"
-                make -j2
-                make install
-              else
-                echo "No existe $PS2SDK/ports (PS2SDK incompleto en la imagen)"
-                exit 1
-              fi
+          git clone --depth 1 https://github.com/ps2dev/ps2sdk.git
+          export PS2SDK=$PS2DEV/ps2sdk
+          echo "PS2SDK=$PS2SDK" >> $GITHUB_ENV
+          cd ps2sdk
+          make -j2
+          make install
+          cd ..
 
-              # --- Volver al proyecto y generar assets RAW ---
-              cd /src
-              mkdir -p assets_build
+      - name: Build assets (png -> raw)
+        run: |
+          python3 tools/build_assets.py
 
-              # Si tienes tools/build_assets.py úsalo; si no, usa png2rgba5551.py
-              if [ -f tools/build_assets.py ]; then
-                python3 tools/build_assets.py
-              elif [ -f tools/png2rgba5551.py ]; then
-                BG_PNG=$(ls assets_src/*bg*.png 2>/dev/null | head -n1)
-                DISC_PNG=$(ls assets_src/*disc*.png assets_src/*icon*.png 2>/dev/null | head -n1)
+      - name: Build ELF
+        run: |
+          make clean
+          make
 
-                # Fallback si los nombres no coinciden
-                [ -n "$BG_PNG" ] || BG_PNG=$(ls assets_src/*.png 2>/dev/null | head -n1)
-                [ -n "$DISC_PNG" ] || DISC_PNG=$(ls assets_src/*.png 2>/dev/null | tail -n1)
-
-                echo "BG_PNG=$BG_PNG"
-                echo "DISC_PNG=$DISC_PNG"
-
-                python3 tools/png2rgba5551.py "$BG_PNG" assets_build/bg.raw
-                python3 tools/png2rgba5551.py "$DISC_PNG" assets_build/disc.raw
-              else
-                echo "No encuentro tools/build_assets.py ni tools/png2rgba5551.py"
-                exit 1
-              fi
-
-              # --- Compilar tu ELF ---
-              make clean
-              make -j2
-            '
-
-      - name: Upload artifact
+      - name: Upload nhui.elf
         uses: actions/upload-artifact@v4
         with:
           name: nhui-elf
-          path: |
-            nhui.elf
-            *.elf
-            *.ELF
+          path: nhui.elf
