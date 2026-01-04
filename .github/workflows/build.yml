@@ -1,7 +1,8 @@
-name: build-ps2-elf
+name: Build PS2 ELF
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -12,48 +13,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install deps
+      # Si YA tienes assets_build/bg.raw y assets_build/disc.raw commiteados,
+      # NO necesitas este paso. Déjalo en false.
+      - name: Generate RAW assets (optional)
+        if: false
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git build-essential cmake make \
-            python3 python3-pip \
-            wget curl patch \
-            texinfo flex bison gawk \
-            libgmp-dev libmpfr-dev libmpc-dev \
-            libncurses-dev zlib1g-dev
-          python3 -m pip install pillow
+          python -m pip install --upgrade pip
+          pip install pillow
+          python tools/png2rgba5551.py assets_src/bg.png assets_build/bg.raw
+          python tools/png2rgba5551.py assets_src/disc.png assets_build/disc.raw
 
-      - name: Install PS2DEV toolchain + PS2SDK
+      - name: Build inside ps2dev Docker (fast + stable)
         run: |
-          export PS2DEV=$HOME/ps2dev
-          echo "PS2DEV=$PS2DEV" >> $GITHUB_ENV
-          echo "$PS2DEV/bin" >> $GITHUB_PATH
+          docker pull ps2dev/ps2dev:v1.2.0
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -w /src \
+            ps2dev/ps2dev:v1.2.0 \
+            bash -lc "make clean && make -j2"
 
-          git clone --depth 1 https://github.com/ps2dev/ps2toolchain.git
-          cd ps2toolchain
-          ./toolchain.sh
-          cd ..
-
-          git clone --depth 1 https://github.com/ps2dev/ps2sdk.git
-          export PS2SDK=$PS2DEV/ps2sdk
-          echo "PS2SDK=$PS2SDK" >> $GITHUB_ENV
-          cd ps2sdk
-          make -j2
-          make install
-          cd ..
-
-      - name: Build assets (png -> raw)
-        run: |
-          python3 tools/build_assets.py
-
-      - name: Build ELF
-        run: |
-          make clean
-          make
-
-      - name: Upload nhui.elf
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nhui-elf
-          path: nhui.elf
+          name: ps2-elf
+          path: |
+            *.elf
+            *.ELF
+            bin/**/*.elf
+            bin/**/*.ELF
