@@ -8,56 +8,56 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # Usamos el contenedor oficial ya listo
-    container:
-      image: ps2dev/ps2dev:v1.2.0
-
-    # IMPORTANTE: ese contenedor es Alpine y muchas veces NO trae bash
-    defaults:
-      run:
-        shell: sh
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install basic deps (Alpine)
+      - name: Build nhui.elf in ps2dev container
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          apk add --no-cache git make cmake python3 py3-pillow
+          set -e
+          docker pull ps2dev/ps2dev:v1.2.0
 
-      - name: Export PS2 env
-        run: |
-          echo "PS2DEV=/usr/local/ps2dev" >> $GITHUB_ENV
-          echo "PS2SDK=/usr/local/ps2dev/ps2sdk" >> $GITHUB_ENV
-          echo "/usr/local/ps2dev/bin" >> $GITHUB_PATH
+          docker run --rm \
+            -e GH_TOKEN="$GH_TOKEN" \
+            -v "${GITHUB_WORKSPACE}:/work" \
+            -w /work \
+            ps2dev/ps2dev:v1.2.0 \
+            /bin/sh -lc '
+              set -e
 
-      - name: Build + install dmaKit
-        run: |
-          git clone --depth 1 https://github.com/ps2dev/dmaKit.git /tmp/dmaKit
-          cd /tmp/dmaKit
-          make -j2
-          make install
+              # Alpine deps
+              apk add --no-cache make git python3 py3-pillow build-base cmake
 
-      - name: Build + install gsKit
-        run: |
-          git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
-          cd /tmp/gsKit
-          cmake -S . -B build -Wno-dev \
-            -DCMAKE_TOOLCHAIN_FILE="$PS2SDK/ps2dev.cmake" \
-            -DCMAKE_INSTALL_PREFIX="$PS2SDK/ports" \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build build -j2
-          cmake --install build
+              # PS2SDK env (por si no viene seteado)
+              export PS2DEV=${PS2DEV:-/usr/local/ps2dev}
+              export PS2SDK=${PS2SDK:-$PS2DEV/ps2sdk}
 
-      - name: Build assets (png -> raw)
-        run: |
-          python3 tools/build_assets.py
+              echo "PS2DEV=$PS2DEV"
+              echo "PS2SDK=$PS2SDK"
 
-      - name: Build ELF
-        run: |
-          make clean
-          make -j2
+              # Evita el error "could not read Username..." usando token
+              git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+              # Instala PORTS si faltan headers
+              if [ ! -f "$PS2SDK/ports/include/gsKit.h" ] || [ ! -f "$PS2SDK/ports/include/dmaKit.h" ]; then
+                rm -rf /tmp/dmaKit /tmp/gsKit
+
+                git clone --depth 1 https://github.com/ps2dev/dmaKit.git /tmp/dmaKit
+                make -C /tmp/dmaKit -j2 install
+
+                git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
+                make -C /tmp/gsKit -j2 install
+              fi
+
+              # Genera assets_build/*.raw
+              python3 tools/build_assets.py
+
+              # Build ELF
+              make clean
+              make
+            '
 
       - name: Upload nhui.elf
         uses: actions/upload-artifact@v4
