@@ -13,8 +13,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Si YA tienes assets_build/bg.raw y assets_build/disc.raw commiteados,
-      # NO necesitas este paso. Déjalo en false.
+      # Generación de assets RAW (OPCIONAL).
+      # Déjalo en false si YA tienes assets_build/bg.raw y assets_build/disc.raw en el repo.
       - name: Generate RAW assets (optional)
         if: false
         run: |
@@ -31,7 +31,7 @@ jobs:
             -v "$GITHUB_WORKSPACE:/src" \
             -w /src \
             ps2dev/ps2dev:v1.2.0 \
-            bash -lc "make clean && make -j2"
+            /bin/sh -c "make clean && make -j2"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
