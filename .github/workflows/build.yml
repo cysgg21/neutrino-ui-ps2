@@ -8,7 +8,6 @@ jobs:
   build:
     runs-on: ubuntu-22.04
 
-    # Todo el job corre dentro del contenedor que ya trae PS2SDK + toolchain
     container:
       image: ps2dev/ps2dev:v1.2.0
 
@@ -20,7 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install deps (Alpine inside container)
+      - name: Install deps (Alpine)
         shell: sh
         run: |
           apk add --no-cache \
@@ -33,15 +32,23 @@ jobs:
             py3-pillow
 
           python3 -c "from PIL import Image; print('Pillow OK')"
+          make --version
+          cmake --version
 
-      # gsKit/dmaKit NO viene siempre en la imagen; tu código lo necesita (gsKit.h / dmaKit.h)
-      - name: Install gsKit (dmaKit)
+      # Instala gsKit + dmaKit usando el sistema de "ports" del PS2SDK (recomendado)
+      - name: Install gsKit + dmaKit (PS2SDK ports)
         shell: sh
         run: |
-          git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
-          cd /tmp/gsKit
-          make -j2
-          make install
+          cd "$PS2SDK/ports"
+
+          # Asegura que ports está listo
+          if [ -f "./configure" ]; then
+            ./configure
+          fi
+
+          # Descarga y compila gsKit (esto suele traer dmaKit también)
+          make -j2 gsKit
+          make -j2 install-gsKit
 
       - name: Build assets (png -> raw)
         shell: sh
