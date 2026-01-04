@@ -26,29 +26,31 @@ jobs:
             git \
             build-base \
             make \
-            cmake \
             python3 \
             py3-pip \
             py3-pillow
 
           python3 -c "from PIL import Image; print('Pillow OK')"
-          make --version
-          cmake --version
+          echo "PS2DEV=$PS2DEV"
+          echo "PS2SDK=$PS2SDK"
+          ls -la "$PS2SDK" || true
 
-      # Instala gsKit + dmaKit usando el sistema de "ports" del PS2SDK (recomendado)
-      - name: Install gsKit + dmaKit (PS2SDK ports)
+      # dmaKit primero, luego gsKit
+      - name: Install dmaKit
         shell: sh
         run: |
-          cd "$PS2SDK/ports"
+          git clone --depth 1 https://github.com/ps2dev/dmaKit.git /tmp/dmaKit
+          cd /tmp/dmaKit
+          make -j2
+          make install
 
-          # Asegura que ports está listo
-          if [ -f "./configure" ]; then
-            ./configure
-          fi
-
-          # Descarga y compila gsKit (esto suele traer dmaKit también)
-          make -j2 gsKit
-          make -j2 install-gsKit
+      - name: Install gsKit
+        shell: sh
+        run: |
+          git clone --depth 1 https://github.com/ps2dev/gsKit.git /tmp/gsKit
+          cd /tmp/gsKit
+          make -j2
+          make install
 
       - name: Build assets (png -> raw)
         shell: sh
